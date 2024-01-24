@@ -354,9 +354,9 @@ class Record {
     private static function getColumns() {
         $ref = new \ReflectionClass(static::class);
         $properties = $ref->getProperties(\ReflectionProperty::IS_PUBLIC);
-        return array_reverse(array_map(function ($p) {
+        return array_map(function ($p) {
             return $p->name;
-        }, $properties));
+        }, $properties);
     }
 
     private function getInitializedColumns() {
@@ -367,12 +367,6 @@ class Record {
                 return $ref->isInitialized($this);
             }
         );
-    }
-
-    private function getColumnValues() {
-        return array_map(function ($v) {
-            return $this->{$v};
-        }, $this->getInitializedColumns());
     }
 
     private static function getTypeFor(string $columnName) {
