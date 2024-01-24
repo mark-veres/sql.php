@@ -102,7 +102,7 @@ class Record {
 
     function __construct() {}
 
-    private static function tableName() {
+    public static function tableName() {
         return strtolower(get_called_class());
     }
 
@@ -124,14 +124,24 @@ class Record {
 
         foreach ($cols as $c) {
             if (static::isReference($c)) {
-                // In this case, $type will be the name of the
-                // class that represents the referenced table.
-                $type = static::getTypeFor($c);
+                // The type of the column, it being a foreign key,
+                // will be the class name of the referenced model.
+                // Thus, as can be seen in the link below, PHP
+                // allows the calling of static methods when the
+                // name of the class is known.
+                // https://stackoverflow.com/a/3121559
+                /**
+                 * Foo::aStaticMethod();
+                 * $classname = 'Foo';
+                 * $classname::aStaticMethod(); // As of PHP 5.3.0
+                 */
+                $class_name = static::getTypeFor($c);
+                $ref_table_name = $class_name::tableName();
                 array_push($sql,
                     sprintf("ALTER TABLE %s ADD %s INT;", $name, $c),
                     sprintf(
                         "ALTER TABLE %s ADD CONSTRAINT fk_%s_%s FOREIGN KEY(%s) REFERENCES %s(id);",
-                        $name, $name, strtolower($type), $c, strtolower($type)
+                        $name, $name, $ref_table_name, $c, $ref_table_name
                     )
                 );
             } else {
@@ -177,9 +187,13 @@ class Record {
 
         // filling the column values in
         foreach ($cols as $c) {
-            $type = \SQL\Types::get($this::getTypeFor($c));
-            $serialized = call_user_func($type["serializer"], $this->{$c});
-            $stmt->bindValue(":val_".$c, $serialized);
+            if ($this::isReference($c)) {
+                $stmt->bindValue(":val_".$c, $this->{$c}->id);
+            } else {
+                $type = \SQL\Types::get($this::getTypeFor($c));
+                $serialized = call_user_func($type["serializer"], $this->{$c});
+                $stmt->bindValue(":val_".$c, $serialized);
+            }
         }
 
         $stmt->execute();

@@ -76,8 +76,15 @@ class Post extends \SQL\Record {
 ```
 
 ## Table names
-Table names are the lowercase version name of the model class.  
-I will add the ability to change table names.
+Table names are the lowercase version name of the model class by default. They can be changed by overwriting the `Record::tableName()` function.
+
+```php
+class User {
+    public static function tableName() {
+        return "users";
+    }
+}
+```
 
 ## Base model
 These are the default table fields. **Do not overwrite them.**
