@@ -74,9 +74,9 @@ I will add the ability to change table names.
 class Record {
     // These are the default table fields
     public int $id;
-    public string $created_at;
-    public string $updated_at;
-    public string $deleted_at;
+    public \DateTime $created_at;
+    public \DateTime $updated_at;
+    public \DateTime $deleted_at;
     ...
 }
 ```

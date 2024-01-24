@@ -42,19 +42,68 @@ class DB {
     public static function setPassword($value) { self::$pass = $value; }
 }
 
+class Types {
+    protected function __construct() { }
+    protected function __clone() { }
+    public function __wakeup() {
+        throw new \Exception("Cannot unserialize a singleton.");
+    }
+
+    private static $types = [];
+
+    public static function add($nativeName, $sqlType, $serializer_cb, $unserializer_cb) {
+        $serializer_cb = $serializer_cb ?? function ($v) { return $v; };
+        $unserializer_cb = $unserializer_cb ?? function ($v) { return $v; };
+
+        self::$types[$nativeName] = [
+            "sqlType" => $sqlType,
+            "serializer" => $serializer_cb,
+            "unserializer" => $unserializer_cb
+        ];
+    }
+
+    public static function remove($nativeName) {
+        unset(self::$types, $nativeName);
+    }
+
+    public static function get($nativeName) {
+        if (array_key_exists($nativeName, self::$types)) {
+            return self::$types[$nativeName];
+        }
+
+        throw new \Error("Complex type " . $nativeName . " is not registered.");
+    }
+
+    public static function getSqlType($nativeName) {
+        return self::get($nativeName)["sqlType"];
+    }
+}
+
+\SQL\Types::add("string", "MEDIUMTEXT", NULL, NULL);
+\SQL\Types::add("int", "MEDIUMINT", NULL, NULL);
+\SQL\Types::add("float", "FLOAT", NULL, NULL);
+\SQL\Types::add("bool", "BOOL", NULL, NULL);
+\SQL\Types::add(
+    "DateTime", "TIMESTAMP",
+    function($value) {
+        return $value->format('Y-m-d H:i:s');
+    },
+    function($value) {
+        return \DateTime::createFromFormat('Y-m-d H:i:s', $value);
+    }
+);
+
 class Record {
     // These are the default table fields
     public int $id;
-    public string $created_at;
-    public string $updated_at;
-    public string $deleted_at;
+    public \DateTime $created_at;
+    public \DateTime $updated_at;
+    public \DateTime $deleted_at;
 
-    function __construct() {
-
-    }
+    function __construct() {}
 
     private static function tableName() {
-        return strtolower(static::class);
+        return strtolower(get_called_class());
     }
 
     public static function register() {
@@ -63,7 +112,7 @@ class Record {
             CREATE TABLE IF NOT EXISTS $name (
                 id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP,
+                updated_at TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 deleted_at TIMESTAMP
             );
         SQL)];
@@ -86,7 +135,8 @@ class Record {
                     )
                 );
             } else {
-                $sql_type = static::getSqlTypeFor($c);
+                $native_type = static::getTypeFor($c);
+                $sql_type = \SQL\Types::getSqlType($native_type);
                 array_push($sql, sprintf("ALTER TABLE %s ADD %s %s;", $name, $c, $sql_type));
             }
         }
@@ -101,15 +151,18 @@ class Record {
     }
 
     public function create() {
+        $this->created_at = new \DateTime();
+
         // The name of the table...
         $name = $this::tableName();
 
         // and the initialized columns formatted as a string
-        $cols = array_diff($this->getInitializedColumns(), ["id"]);
+        $cols = array_diff($this->getInitializedColumns(), ["id", "updated_at", "deleted_at"]);
         $columns = join(", ", $cols);
 
         // together with the values of these columns, also
-        // written as arguments for the SQL statement
+        // written as arguments for the SQL statement.
+        // example output: :val_col1, :val_col2, :val_col3
         $values = join(", ", array_map(
             function ($v) {
                 return ":val_$v";
@@ -124,7 +177,9 @@ class Record {
 
         // filling the column values in
         foreach ($cols as $c) {
-            $stmt->bindValue(":val_".$c, $this->{$c});
+            $type = \SQL\Types::get($this::getTypeFor($c));
+            $serialized = call_user_func($type["serializer"], $this->{$c});
+            $stmt->bindValue(":val_".$c, $serialized);
         }
 
         $stmt->execute();
@@ -135,22 +190,29 @@ class Record {
             throw new \Error("Must know ID to update row.");
         }
 
+        // Table name and ID of the row...
         $name = $this::tableName();
         $id = $this->id;
 
+        // its values written as a string...
+        // example output: col1 = :val_col1, col2 = :val_col2
         $values = join(", ", array_map(
             function ($c) { return sprintf("%s = :val_%s", $c, $c); },
             $this->getInitializedColumns()
         ));
 
+        // all into a single SQL statement
         $stmt = \SQL\DB::getInstance()->prepare(<<<SQL
             UPDATE $name SET $values WHERE id = :id
         SQL);
 
+        // filling the values in
         foreach ($this->getInitializedColumns() as $c) {
-            $stmt->bindValue(":val_$c", $this->{$c});
+            $type = \SQL\Types::get($this::getTypeFor($c));
+            $serialized = call_user_func($type["serializer"], $this->{$c});
+            $stmt->bindValue(":val_$c", $serialized);
         }
-        $stmt->bindValue(":id", $id);
+        $stmt->bindValue(":id", $id, \PDO::PARAM_INT);
         $stmt->execute();
     }
 
@@ -160,7 +222,7 @@ class Record {
         }
 
         if ($soft) {
-            $this->deleted_at = date("Y-m-d H:i:s");
+            $this->deleted_at = new \DateTime();
             $this->update();
         } else {
             $name = $this::tableName();
@@ -184,7 +246,9 @@ class Record {
         SQL);
 
         foreach ($this->getInitializedColumns() as $c) {
-            $stmt->bindValue(":val_$c", $this->{$c});
+            $type = \SQL\Types::get($this::getTypeFor($c));
+            $serialized = call_user_func($type["serializer"], $this->{$c});
+            $stmt->bindValue(":val_$c", $serialized);
         }
 
         $stmt->execute();
@@ -192,7 +256,9 @@ class Record {
 
         foreach ($result as $key => $value) {
             if (isset($result[$key])) {
-                $this->{$key} = $value;
+                $type = \SQL\Types::get($this::getTypeFor($key));
+                $unserialized = call_user_func($type["unserializer"], $value);
+                $this->{$key} = $unserialized;
             }
         }
     }
@@ -215,7 +281,9 @@ class Record {
             SQL);
 
             foreach ($this->getInitializedColumns() as $c) {
-                $stmt->bindValue(":val_$c", $this->{$c});
+                $type = \SQL\Types::get($this::getTypeFor($c));
+                $serialized = call_user_func($type["serializer"], $this->{$c});
+                $stmt->bindValue(":val_$c", $serialized);
             }
         }
         $stmt->execute();
@@ -223,10 +291,12 @@ class Record {
         $result = [];
         $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
         foreach ($rows as $row) {
-            $obj = new self;
+            $obj = new static;
             foreach ($row as $key => $value) {
                 if (isset($row[$key])) {
-                    $obj->{$key} = $value;
+                    $type = \SQL\Types::get($this::getTypeFor($key));
+                    $unserialized = call_user_func($type["unserializer"], $value);
+                    $obj->{$key} = $unserialized;
                 }
             }
             array_push($result, $obj);
@@ -268,15 +338,6 @@ class Record {
             }
         }
         throw new \Error("Column " . $columnName . " not present in table " . static::class);
-    }
-
-    private static function getSqlTypeFor(string $columnName) {
-        return match (static::getTypeFor($columnName)) {
-            "string" => "MEDIUMTEXT",
-            "int" => "MEDIUMINT",
-            "float" => "FLOAT",
-            default => "MEDIUMTEXT"
-        };
     }
 
     private static function isReference(string $columnName) {
