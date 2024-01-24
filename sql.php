@@ -204,6 +204,8 @@ class Record {
             throw new \Error("Must know ID to update row.");
         }
 
+        $this->updated_at = new \DateTime;
+
         // Table name and ID of the row...
         $name = $this::tableName();
         $id = $this->id;
@@ -222,9 +224,13 @@ class Record {
 
         // filling the values in
         foreach ($this->getInitializedColumns() as $c) {
-            $type = \SQL\Types::get($this::getTypeFor($c));
-            $serialized = call_user_func($type["serializer"], $this->{$c});
-            $stmt->bindValue(":val_$c", $serialized);
+            if ($this::isReference($c)) {
+                $stmt->bindValue(":val_$c", $this->{$c}->id);
+            } else {
+                $type = \SQL\Types::get($this::getTypeFor($c));
+                $serialized = call_user_func($type["serializer"], $this->{$c});
+                $stmt->bindValue(":val_$c", $serialized);
+            }
         }
         $stmt->bindValue(":id", $id, \PDO::PARAM_INT);
         $stmt->execute();
@@ -260,9 +266,13 @@ class Record {
         SQL);
 
         foreach ($this->getInitializedColumns() as $c) {
-            $type = \SQL\Types::get($this::getTypeFor($c));
-            $serialized = call_user_func($type["serializer"], $this->{$c});
-            $stmt->bindValue(":val_$c", $serialized);
+            if ($this::isReference($c)) {
+                $stmt->bindValue(":val_$c", $this->{$c}->id);
+            } else {
+                $type = \SQL\Types::get($this::getTypeFor($c));
+                $serialized = call_user_func($type["serializer"], $this->{$c});
+                $stmt->bindValue(":val_$c", $serialized);
+            }
         }
 
         $stmt->execute();
@@ -270,9 +280,16 @@ class Record {
 
         foreach ($result as $key => $value) {
             if (isset($result[$key])) {
-                $type = \SQL\Types::get($this::getTypeFor($key));
-                $unserialized = call_user_func($type["unserializer"], $value);
-                $this->{$key} = $unserialized;
+                if ($this::isReference($key)) {
+                    $obj = new ($this::getTypeFor($key));
+                    $obj->id = $value;
+                    $obj->fetch();
+                    $this->{$key} = $obj;
+                } else {
+                    $type = \SQL\Types::get($this::getTypeFor($key));
+                    $unserialized = call_user_func($type["unserializer"], $value);
+                    $this->{$key} = $unserialized;
+                }
             }
         }
     }
@@ -295,9 +312,16 @@ class Record {
             SQL);
 
             foreach ($this->getInitializedColumns() as $c) {
-                $type = \SQL\Types::get($this::getTypeFor($c));
-                $serialized = call_user_func($type["serializer"], $this->{$c});
-                $stmt->bindValue(":val_$c", $serialized);
+                if ($this::isReference($c)) {
+                    if (!isset($this->{$c}->id)) {
+                        $this->{$c}->fetch();
+                    }
+                    $stmt->bindValue(":val_$c", $this->{$c}->id);
+                } else {
+                    $type = \SQL\Types::get($this::getTypeFor($c));
+                    $serialized = call_user_func($type["serializer"], $this->{$c});
+                    $stmt->bindValue(":val_$c", $serialized);
+                }
             }
         }
         $stmt->execute();
@@ -308,9 +332,17 @@ class Record {
             $obj = new static;
             foreach ($row as $key => $value) {
                 if (isset($row[$key])) {
-                    $type = \SQL\Types::get($this::getTypeFor($key));
-                    $unserialized = call_user_func($type["unserializer"], $value);
-                    $obj->{$key} = $unserialized;
+                    if ($this::isReference($key)) {
+                        $class_name = $this::getTypeFor($key);
+                        $ref_obj = new $class_name();
+                        $ref_obj->id = $value;
+                        $ref_obj->fetch();
+                        $obj->{$key} = $ref_obj;
+                    } else {
+                        $type = \SQL\Types::get($this::getTypeFor($key));
+                        $unserialized = call_user_func($type["unserializer"], $value);
+                        $obj->{$key} = $unserialized;
+                    }
                 }
             }
             array_push($result, $obj);
