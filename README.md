@@ -203,3 +203,10 @@ $soft = true;
 $u->delete($soft);
 $u->delete(!$soft);
 ```
+
+### Clear
+This function clears the objects variables. It's usefull for reusing the same object for multiple queries.
+
+```php
+$u->clear();
+```
