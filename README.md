@@ -14,6 +14,8 @@ It shouldn't be used in real apps because it's realy flaky and not well done.
 - [Models](#models)
     + [Declaring models](#declaring-models)
     + [Declaring foreign keys](#declaring-foreign-keys)
+    + [Table names](#table-names)
+    + [Base model](#base-model)
 - [Type system](#type-system)
     + [Native types](#native-types)
     + [Complex types](#complex-types)
@@ -75,7 +77,7 @@ class Post extends \SQL\Record {
 }
 ```
 
-## Table names
+### Table names
 Table names are the lowercase version name of the model class by default. They can be changed by overwriting the `Record::tableName()` function.
 
 ```php
@@ -86,7 +88,7 @@ class User {
 }
 ```
 
-## Base model
+### Base model
 These are the default table fields. **Do not overwrite them.**
 
 ```php
