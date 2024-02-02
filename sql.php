@@ -135,7 +135,7 @@ class Record {
                  * $classname = 'Foo';
                  * $classname::aStaticMethod(); // As of PHP 5.3.0
                  */
-                $class_name = static::getTypeFor($c);
+                $class_name = static::getTypeFor($c)->getName();
                 $ref_table_name = $class_name::tableName();
                 array_push($sql,
                     sprintf("ALTER TABLE %s ADD %s INT;", $name, $c),
@@ -145,9 +145,13 @@ class Record {
                     )
                 );
             } else {
-                $native_type = static::getTypeFor($c);
+                $value = static::getDefaultValue($c);
+                $default_value = (static::hasDefaultValue($c)) ? "DEFAULT($value)" : "" ;
+                $not_null_constraint = (static::isNullable($c)) ? "" : "NOT NULL";
+                $native_type = static::getTypeFor($c)->getName();
                 $sql_type = \SQL\Types::getSqlType($native_type);
-                array_push($sql, sprintf("ALTER TABLE %s ADD %s %s;", $name, $c, $sql_type));
+                array_push($sql, sprintf("ALTER TABLE %s ADD %s %s %s %s;",
+                    $name, $c, $sql_type, $not_null_constraint, $default_value));
             }
         }
 
@@ -190,7 +194,7 @@ class Record {
             if ($this::isReference($c)) {
                 $stmt->bindValue(":val_".$c, $this->{$c}->id);
             } else {
-                $type = \SQL\Types::get($this::getTypeFor($c));
+                $type = \SQL\Types::get($this::getTypeFor($c)->getName());
                 $serialized = call_user_func($type["serializer"], $this->{$c});
                 $stmt->bindValue(":val_".$c, $serialized);
             }
@@ -227,7 +231,7 @@ class Record {
             if ($this::isReference($c)) {
                 $stmt->bindValue(":val_$c", $this->{$c}->id);
             } else {
-                $type = \SQL\Types::get($this::getTypeFor($c));
+                $type = \SQL\Types::get($this::getTypeFor($c)->getName());
                 $serialized = call_user_func($type["serializer"], $this->{$c});
                 $stmt->bindValue(":val_$c", $serialized);
             }
@@ -269,7 +273,7 @@ class Record {
             if ($this::isReference($c)) {
                 $stmt->bindValue(":val_$c", $this->{$c}->id);
             } else {
-                $type = \SQL\Types::get($this::getTypeFor($c));
+                $type = \SQL\Types::get($this::getTypeFor($c)->getName());
                 $serialized = call_user_func($type["serializer"], $this->{$c});
                 $stmt->bindValue(":val_$c", $serialized);
             }
@@ -281,12 +285,12 @@ class Record {
         foreach ($result as $key => $value) {
             if (isset($result[$key])) {
                 if ($this::isReference($key)) {
-                    $obj = new ($this::getTypeFor($key));
+                    $obj = new ($this::getTypeFor($key)->getName());
                     $obj->id = $value;
                     $obj->fetch();
                     $this->{$key} = $obj;
                 } else {
-                    $type = \SQL\Types::get($this::getTypeFor($key));
+                    $type = \SQL\Types::get($this::getTypeFor($key)->getName());
                     $unserialized = call_user_func($type["unserializer"], $value);
                     $this->{$key} = $unserialized;
                 }
@@ -318,7 +322,7 @@ class Record {
                     }
                     $stmt->bindValue(":val_$c", $this->{$c}->id);
                 } else {
-                    $type = \SQL\Types::get($this::getTypeFor($c));
+                    $type = \SQL\Types::get($this::getTypeFor($c)->getName());
                     $serialized = call_user_func($type["serializer"], $this->{$c});
                     $stmt->bindValue(":val_$c", $serialized);
                 }
@@ -333,13 +337,13 @@ class Record {
             foreach ($row as $key => $value) {
                 if (isset($row[$key])) {
                     if ($this::isReference($key)) {
-                        $class_name = $this::getTypeFor($key);
+                        $class_name = $this::getTypeFor($key)->getName();
                         $ref_obj = new $class_name();
                         $ref_obj->id = $value;
                         $ref_obj->fetch();
                         $obj->{$key} = $ref_obj;
                     } else {
-                        $type = \SQL\Types::get($this::getTypeFor($key));
+                        $type = \SQL\Types::get($this::getTypeFor($key)->getName());
                         $unserialized = call_user_func($type["unserializer"], $value);
                         $obj->{$key} = $unserialized;
                     }
@@ -374,14 +378,40 @@ class Record {
         $properties = $ref->getProperties(\ReflectionProperty::IS_PUBLIC);
         foreach ($properties as $p) {
             if ($p->name == $columnName) {
-                return $p->getType()->getName();
+                return $p->getType();
+            }
+        }
+        throw new \Error("Column " . $columnName . " not present in table " . static::class);
+    }
+
+    private static function getPropertyFor(string $columnName) {
+        $ref = new \ReflectionClass(static::class);
+        $properties = $ref->getProperties(\ReflectionProperty::IS_PUBLIC);
+        foreach ($properties as $p) {
+            if ($p->name == $columnName) {
+                return $p;
             }
         }
         throw new \Error("Column " . $columnName . " not present in table " . static::class);
     }
 
     private static function isReference(string $columnName) {
-        return is_subclass_of(static::getTypeFor($columnName), "\SQL\Record");
+        return is_subclass_of(static::getTypeFor($columnName)->getName(), "\SQL\Record");
+    }
+
+    private static function isNullable(string $columnName) {
+        return self::getTypeFor($columnName)->allowsNull();
+    }
+
+    private static function hasDefaultValue(string $columnName) {
+        return static::getPropertyFor($columnName)->hasDefaultValue();
+    }
+
+    private static function getDefaultValue(string $columnName) {
+        $prop = static::getPropertyFor($columnName);
+        if ($prop->hasDefaultValue()) {
+            return $prop->getDefaultValue();
+        }
     }
 
     private static function exec($commands) {
