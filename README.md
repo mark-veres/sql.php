@@ -28,6 +28,10 @@ It shouldn't be used in real apps because it's realy flaky and not well done.
 ## Installation
 The instalation process consists of dragging the sql.php into your project folder and including it into your PHP file.
 
+```bash
+wget https://raw.githubusercontent.com/mark-veres/sql.php/main/sql.php
+```
+
 ```php
 require_once "sql.php";
 ```
