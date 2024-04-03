@@ -105,6 +105,33 @@ class Record {
 }
 ```
 
+### Declaring constraints
+SQL constraints are used to specify rules for data in a table.
+#### NOT NULL constraint
+```php
+// NOT NULL
+public string $content;
+
+// NULL-ABLE
+public ?string $content;
+```
+
+#### DEFAULT constraint
+The default constraint may not work for all types.
+```php
+// strings must have extra quotes around them (BUG)
+public ?string $content = "\"sample text\""
+```
+
+#### UNIQUE constraint
+```php
+class User extends \SQL\Record {
+    /** UNIQUE */
+    public string $username;
+    public string $password;
+}
+```
+
 ## Type system
 Internally, the type system does not treat "complex" and native types differently. But its easier for us to differentiate between them.
 
@@ -112,7 +139,7 @@ Each type has a *serialization* and an *unserialization* function associated wit
 
 ### Native types
 From [PHPs variable types](https://www.php.net/manual/en/language.types.intro.php), we implement by default the following:
-- `string` which corresponds to SQLs `MEDIUMTEXT`
+- `string` which corresponds to SQLs `VARCHAR(768)`
 - `int` => `INT`
 - `float` => `FLOAT`
 - `bool` => `BOOL`

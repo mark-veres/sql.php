@@ -79,7 +79,7 @@ class Types {
     }
 }
 
-\SQL\Types::add("string", "MEDIUMTEXT", NULL, NULL);
+\SQL\Types::add("string", "VARCHAR(768)", NULL, NULL);
 \SQL\Types::add("int", "MEDIUMINT", NULL, NULL);
 \SQL\Types::add("float", "FLOAT", NULL, NULL);
 \SQL\Types::add("bool", "BOOL", NULL, NULL);
@@ -103,7 +103,8 @@ class Record {
     function __construct() {}
 
     public static function tableName() {
-        return strtolower(get_called_class());
+        $reflect = new \ReflectionClass(static::class);
+        return strtolower($reflect->getShortName());
     }
 
     public static function register() {
@@ -152,6 +153,14 @@ class Record {
                 $sql_type = \SQL\Types::getSqlType($native_type);
                 array_push($sql, sprintf("ALTER TABLE %s ADD %s %s %s %s;",
                     $name, $c, $sql_type, $not_null_constraint, $default_value));
+
+                $is_unique = str_contains(strtolower(static::getPropertyFor($c)->getDocComment()), "unique");
+                if ($is_unique) {
+                    array_push($sql, sprintf(
+                        "ALTER TABLE %s ADD UNIQUE (%s);",
+                        $name, $c
+                    ));
+                }
             }
         }
 
@@ -282,7 +291,9 @@ class Record {
         $stmt->execute();
         $result = $stmt->fetch(\PDO::FETCH_ASSOC);
 
-        foreach ($result as $key => $value) {
+        $valid = gettype($result) == "array" || gettype($result) == "object";
+
+        if ($valid) foreach ($result as $key => $value) {
             if (isset($result[$key])) {
                 if ($this::isReference($key)) {
                     $obj = new ($this::getTypeFor($key)->getName());
